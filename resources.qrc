@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/slate">
+        <file>qml/HomeScreen.qml</file>
+    </qresource>
+</RCC>
