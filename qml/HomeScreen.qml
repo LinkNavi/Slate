@@ -1,23 +1,40 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
+import Slate 1.0
 
 Window {
     id: root
     width: 1280
     height: 800
     visible: true
-    title: "Slate"
-    color: "#080C0F"
+    title: {
+        var t = "Slate"
+        if (editorStack.currentBuffer) {
+            t = editorStack.currentBuffer.fileName + (editorStack.currentBuffer.modified ? " •" : "") + " — Slate"
+            if (projectManager.projectName)
+                t += " [" + projectManager.projectName + "]"
+        } else if (projectManager.projectName) {
+            t += " [" + projectManager.projectName + "]"
+        }
+        return t
+    }
+    color: theme.background
 
+    property bool showExplorer: true
+    property bool showWelcome: true
+    property bool showCommandPalette: false
+    property bool showSettings: false
+
+    // Background grid
     Canvas {
         id: gridCanvas
         anchors.fill: parent
-        opacity: 0.07
+        opacity: 0.04
         onPaint: {
             var ctx = getContext("2d")
             ctx.clearRect(0, 0, width, height)
-            ctx.strokeStyle = "#4ECDC4"
+            ctx.strokeStyle = theme.accent
             ctx.lineWidth = 0.5
             var spacing = 40
             for (var x = 0; x <= width; x += spacing) {
@@ -27,405 +44,256 @@ Window {
                 ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke()
             }
         }
-    }
-
-    Canvas {
-        width: 600; height: 600
-        x: -150; y: -150
-        onPaint: {
-            var ctx = getContext("2d")
-            var grad = ctx.createRadialGradient(300, 300, 0, 300, 300, 300)
-            grad.addColorStop(0, "#1A4ECDC4")
-            grad.addColorStop(1, "transparent")
-            ctx.fillStyle = grad
-            ctx.fillRect(0, 0, width, height)
+        Connections {
+            target: theme
+            function onThemeChanged() { gridCanvas.requestPaint() }
         }
     }
 
-    Canvas {
-        width: 500; height: 500
-        x: root.width - 200; y: root.height - 200
-        onPaint: {
-            var ctx = getContext("2d")
-            var grad = ctx.createRadialGradient(250, 250, 0, 250, 250, 250)
-            grad.addColorStop(0, "#1A2A6B4A")
-            grad.addColorStop(1, "transparent")
-            ctx.fillStyle = grad
-            ctx.fillRect(0, 0, width, height)
+    // Keybinds
+    Shortcut { sequence: "Ctrl+B"; onActivated: root.showExplorer = !root.showExplorer }
+    Shortcut {
+        sequence: "Ctrl+N"
+        onActivated: {
+            editorStack.newFile()
+            root.showWelcome = false; root.showSettings = false
         }
     }
+    Shortcut {
+        sequence: "Ctrl+O"
+        onActivated: {
+            var path = dialogHelper.openFile()
+            if (path) { editorStack.openFile(path); root.showWelcome = false; root.showSettings = false }
+        }
+    }
+    Shortcut {
+        sequence: "Ctrl+K"
+        onActivated: {
+            var path = dialogHelper.openFolder()
+            if (path) {
+                projectManager.openDirectory(path)
+                fileSystemModel.rootPath = projectManager.projectRoot || path
+                root.showExplorer = true; root.showWelcome = false; root.showSettings = false
+            }
+        }
+    }
+    Shortcut { sequence: "Ctrl+S"; onActivated: { if (editorStack.currentBuffer) editorStack.currentBuffer.saveFile() } }
+    Shortcut { sequence: "Ctrl+W"; onActivated: editorStack.closeCurrentTab() }
+    Shortcut { sequence: "Ctrl+P"; onActivated: root.showCommandPalette = !root.showCommandPalette }
+    Shortcut {
+        sequence: "Ctrl+Shift+S"
+        onActivated: {
+            if (editorStack.currentBuffer) {
+                var path = dialogHelper.saveFile()
+                if (path) editorStack.currentBuffer.saveFileAs(path)
+            }
+        }
+    }
+    Shortcut { sequence: "Ctrl+Tab"; onActivated: editorStack.nextTab() }
+    Shortcut { sequence: "Ctrl+Shift+Tab"; onActivated: editorStack.prevTab() }
+    Shortcut { sequence: "Ctrl+,"; onActivated: root.showSettings = !root.showSettings }
+    Shortcut { sequence: "Escape"; onActivated: {
+        if (root.showCommandPalette) root.showCommandPalette = false
+        else if (root.showSettings) root.showSettings = false
+    }}
 
+    // Main layout
     RowLayout {
-        anchors.fill: parent
+        anchors { fill: parent; bottomMargin: 26 }
         spacing: 0
 
+        // File Explorer sidebar
         Rectangle {
-            width: 220
+            id: explorerPanel
+            width: root.showExplorer && !root.showWelcome ? 240 : 0
             Layout.fillHeight: true
-            color: "#0C1115"
-            border.color: "#1A2832"
-            border.width: 1
+            color: theme.backgroundAlt
+            border.color: theme.border
+            border.width: width > 0 ? 1 : 0
+            clip: true
+            visible: width > 0
 
-            ColumnLayout {
-                anchors { fill: parent; margins: 24 }
-                spacing: 0
+            Behavior on width { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
 
-                Item {
-                    width: parent.width
-                    height: 56
-                    Layout.bottomMargin: 32
-
-                    Canvas {
-                        id: eyeGlyph
-                        width: 32; height: 32
-                        anchors.verticalCenter: parent.verticalCenter
-                        onPaint: {
-                            var ctx = getContext("2d")
-                            ctx.clearRect(0, 0, width, height)
-                            ctx.beginPath()
-                            ctx.moveTo(16, 2); ctx.lineTo(30, 16)
-                            ctx.lineTo(16, 30); ctx.lineTo(2, 16)
-                            ctx.closePath()
-                            ctx.strokeStyle = "#4ECDC4"
-                            ctx.lineWidth = 1.5
-                            ctx.stroke()
-                            ctx.beginPath()
-                            ctx.arc(16, 16, 5, 0, Math.PI * 2)
-                            ctx.fillStyle = "#4ECDC4"
-                            ctx.fill()
-                            ctx.beginPath()
-                            ctx.moveTo(16, 21); ctx.lineTo(13, 28); ctx.lineTo(19, 28)
-                            ctx.closePath()
-                            ctx.fillStyle = "#4ECDC4"
-                            ctx.fill()
-                        }
-                        SequentialAnimation on opacity {
-                            running: true; loops: Animation.Infinite
-                            NumberAnimation { to: 0.4; duration: 2000; easing.type: Easing.InOutSine }
-                            NumberAnimation { to: 1.0; duration: 2000; easing.type: Easing.InOutSine }
-                        }
-                    }
-
-                    Text {
-                        text: "SLATE"
-                        anchors { left: eyeGlyph.right; leftMargin: 12; verticalCenter: parent.verticalCenter }
-                        font.family: "Courier New"
-                        font.pixelSize: 18
-                        font.letterSpacing: 6
-                        font.weight: Font.Bold
-                        color: "#E8F4F3"
-                    }
+            FileExplorer {
+                id: fileExplorer
+                anchors.fill: parent
+                onFileSelected: function(path) {
+                    editorStack.openFile(path)
+                    root.showWelcome = false; root.showSettings = false
                 }
-
-                Repeater {
-                    model: [
-                        { icon: "◈", label: "New File",    shortcut: "Ctrl+N" },
-                        { icon: "◉", label: "Open File",   shortcut: "Ctrl+O" },
-                        { icon: "◎", label: "Open Folder", shortcut: "Ctrl+K" },
-                        { icon: "◇", label: "Recent",      shortcut: "Ctrl+R" },
-                    ]
-                    delegate: Rectangle {
-                        width: parent.width
-                        height: 44
-                        Layout.bottomMargin: 4
-                        radius: 6
-                        color: navHover.containsMouse ? "#162028" : "transparent"
-                        Behavior on color { ColorAnimation { duration: 120 } }
-                        RowLayout {
-                            anchors { fill: parent; leftMargin: 12; rightMargin: 12 }
-                            spacing: 10
-                            Text { text: modelData.icon; font.pixelSize: 14; color: "#4ECDC4" }
-                            Text {
-                                text: modelData.label
-                                font.family: "Courier New"
-                                font.pixelSize: 13
-                                color: "#A8C4C2"
-                                Layout.fillWidth: true
-                            }
-                            Text {
-                                text: modelData.shortcut
-                                font.family: "Courier New"
-                                font.pixelSize: 11
-                                color: "#3D5C5A"
-                            }
-                        }
-                        HoverHandler { id: navHover }
-                        TapHandler { onTapped: console.log("nav:", modelData.label) }
-                    }
-                }
-
-                Item { Layout.fillHeight: true }
-
-                Repeater {
-                    model: [
-                        { icon: "⌥", label: "Settings" },
-                        { icon: "?", label: "Help" },
-                    ]
-                    delegate: Rectangle {
-                        width: parent.width
-                        height: 40
-                        radius: 6
-                        color: btmHover.containsMouse ? "#162028" : "transparent"
-                        Behavior on color { ColorAnimation { duration: 120 } }
-                        RowLayout {
-                            anchors { fill: parent; leftMargin: 12; rightMargin: 12 }
-                            spacing: 10
-                            Text { text: modelData.icon; font.pixelSize: 13; color: "#4ECDC4" }
-                            Text {
-                                text: modelData.label
-                                font.family: "Courier New"
-                                font.pixelSize: 13
-                                color: "#A8C4C2"
-                            }
-                        }
-                        HoverHandler { id: btmHover }
-                    }
-                }
-
-                Item { height: 8 }
             }
         }
 
+        // Editor area
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            ColumnLayout {
-                anchors { fill: parent; margins: 48 }
-                spacing: 0
-
-                ColumnLayout {
-                    spacing: 8
-                    Layout.bottomMargin: 48
-
-                    Text {
-                        text: "// welcome back"
-                        font.family: "Courier New"
-                        font.pixelSize: 12
-                        color: "#2A6B4A"
-                        font.letterSpacing: 2
-                        NumberAnimation on opacity {
-                            running: true; from: 0; to: 1
-                            duration: 600; easing.type: Easing.OutCubic
-                        }
-                    }
-
-                    Text {
-                        text: "Start here."
-                        font.family: "Courier New"
-                        font.pixelSize: 42
-                        font.weight: Font.Bold
-                        color: "#E8F4F3"
-                        font.letterSpacing: -1
-                        NumberAnimation on opacity {
-                            running: true; from: 0; to: 1
-
-                        }
-                        NumberAnimation on y {
-                            running: true; from: 10; to: 0
-
-                        }
+            WelcomeScreen {
+                id: welcomeScreen
+                anchors.fill: parent
+                visible: root.showWelcome && !root.showSettings
+                onOpenFile: {
+                    var p = dialogHelper.openFile()
+                    if (p) { editorStack.openFile(p); root.showWelcome = false }
+                }
+                onOpenFolder: {
+                    var d = dialogHelper.openFolder()
+                    if (d) {
+                        projectManager.openDirectory(d)
+                        fileSystemModel.rootPath = projectManager.projectRoot || d
+                        root.showExplorer = true; root.showWelcome = false
                     }
                 }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 32
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 12
-
-                        Text {
-                            text: "RECENT FILES"
-                            font.family: "Courier New"
-                            font.pixelSize: 11
-                            font.letterSpacing: 3
-                            color: "#3D6B68"
-                            Layout.bottomMargin: 4
-                        }
-
-                        Repeater {
-                            model: [
-                                { name: "main.cpp",       path: "~/slate/src/",      lang: "C++",    time: "2m ago" },
-                                { name: "editor.qml",     path: "~/slate/qml/",      lang: "QML",    time: "1h ago" },
-                                { name: "lsp_client.cpp", path: "~/slate/src/lsp/",  lang: "C++",    time: "3h ago" },
-                                { name: "CMakeLists.txt", path: "~/slate/",          lang: "CMake",  time: "yesterday" },
-                                { name: "buffer.h",       path: "~/slate/include/",  lang: "Header", time: "2d ago" },
-                            ]
-                            delegate: Rectangle {
-                                width: parent.width
-                                height: 56
-                                radius: 8
-                                color: fileHover.containsMouse ? "#0F1D24" : "#0A1419"
-                                border.color: fileHover.containsMouse ? "#2A4A48" : "#141E25"
-                                border.width: 1
-                                Behavior on color { ColorAnimation { duration: 120 } }
-                                Behavior on border.color { ColorAnimation { duration: 120 } }
-
-                                Rectangle {
-                                    width: 3; height: 32
-                                    anchors { left: parent.left; verticalCenter: parent.verticalCenter }
-                                    radius: 2
-                                    color: fileHover.containsMouse ? "#4ECDC4" : "#1E3A38"
-                                    Behavior on color { ColorAnimation { duration: 120 } }
-                                }
-
-                                RowLayout {
-                                    anchors { fill: parent; leftMargin: 20; rightMargin: 16 }
-                                    spacing: 12
-                                    ColumnLayout {
-                                        spacing: 3
-                                        Layout.fillWidth: true
-                                        Text {
-                                            text: modelData.name
-                                            font.family: "Courier New"
-                                            font.pixelSize: 13
-                                            font.weight: Font.Medium
-                                            color: "#D4ECEB"
-                                        }
-                                        Text {
-                                            text: modelData.path
-                                            font.family: "Courier New"
-                                            font.pixelSize: 11
-                                            color: "#3D6B68"
-                                        }
-                                    }
-                                    Rectangle {
-                                        height: 20
-                                        width: langLabel.width + 16
-                                        radius: 4
-                                        color: "#0C2422"
-                                        border.color: "#1A4A47"
-                                        border.width: 1
-                                        Text {
-                                            id: langLabel
-                                            anchors.centerIn: parent
-                                            text: modelData.lang
-                                            font.family: "Courier New"
-                                            font.pixelSize: 10
-                                            color: "#4ECDC4"
-                                            font.letterSpacing: 1
-                                        }
-                                    }
-                                    Text {
-                                        text: modelData.time
-                                        font.family: "Courier New"
-                                        font.pixelSize: 11
-                                        color: "#2A4A48"
-                                    }
-                                }
-
-                                HoverHandler { id: fileHover }
-                                TapHandler { onTapped: console.log("open:", modelData.name) }
-
-                                NumberAnimation on opacity {
-                                    running: true; from: 0; to: 1
-
-                                    easing.type: Easing.OutCubic
-                                }
-                            }
-                        }
-                    }
-
-                    ColumnLayout {
-                        width: 280
-                        Layout.preferredWidth: 280
-                        spacing: 20
-
-                        ColumnLayout {
-                            width: parent.width
-                            spacing: 12
-
-                            Text {
-                                text: "QUICK ACTIONS"
-                                font.family: "Courier New"
-                                font.pixelSize: 11
-                                font.letterSpacing: 3
-                                color: "#3D6B68"
-                                Layout.bottomMargin: 4
-                            }
-
-                            Repeater {
-                                model: [
-                                    { label: "Clone Repository", icon: "⎇" },
-                                    { label: "Command Palette",  icon: "❯" },
-                                    { label: "Configure LSP",    icon: "◈" },
-                                ]
-                                delegate: Rectangle {
-                                    width: 280
-                                    height: 44
-                                    radius: 8
-                                    color: actHover.containsMouse ? "#0F1D24" : "#0A1419"
-                                    border.color: actHover.containsMouse ? "#2A4A48" : "#141E25"
-                                    border.width: 1
-                                    Behavior on color { ColorAnimation { duration: 120 } }
-                                    RowLayout {
-                                        anchors { fill: parent; leftMargin: 16; rightMargin: 16 }
-                                        spacing: 12
-                                        Text { text: modelData.icon; font.pixelSize: 14; color: "#4ECDC4" }
-                                        Text {
-                                            text: modelData.label
-                                            font.family: "Courier New"
-                                            font.pixelSize: 13
-                                            color: "#A8C4C2"
-                                        }
-                                    }
-                                    HoverHandler { id: actHover }
-                                }
-                            }
-                        }
-
-                        Rectangle {
-                            width: 280
-                            height: tipCol.implicitHeight + 32
-                            radius: 8
-                            color: "#07100D"
-                            border.color: "#1A3830"
-                            border.width: 1
-                            ColumnLayout {
-                                id: tipCol
-                                anchors { fill: parent; margins: 16 }
-                                spacing: 8
-                                Text {
-                                    text: "// tip"
-                                    font.family: "Courier New"
-                                    font.pixelSize: 11
-                                    font.letterSpacing: 2
-                                    color: "#2A6B4A"
-                                }
-                                Text {
-                                    text: "Press Ctrl+P to open the command palette at any time."
-                                    font.family: "Courier New"
-                                    font.pixelSize: 12
-                                    color: "#5A8A82"
-                                    wrapMode: Text.WordWrap
-                                    Layout.fillWidth: true
-                                    lineHeight: 1.5
-                                }
-                            }
-                        }
-
-                        Item { Layout.fillHeight: true }
-
-                        Text {
-                            text: "slate v0.1.0 — sheikah build"
-                            font.family: "Courier New"
-                            font.pixelSize: 10
-                            color: "#1E3A38"
-                            font.letterSpacing: 1
-                        }
-                    }
+                onNewFile: {
+                    editorStack.newFile()
+                    root.showWelcome = false
                 }
+                onProjectOpened: function(path) {
+                    projectManager.openDirectory(path)
+                    fileSystemModel.rootPath = projectManager.projectRoot || path
+                    root.showExplorer = true; root.showWelcome = false
+                }
+            }
 
-                Item { Layout.fillHeight: true }
+            EditorArea {
+                id: editorStack
+                anchors.fill: parent
+                visible: !root.showWelcome && !root.showSettings
+                onFileOpened: root.showWelcome = false
+            }
+
+            SettingsPanel {
+                anchors.fill: parent
+                visible: root.showSettings
+                onClosed: root.showSettings = false
             }
         }
     }
 
+    // Status bar
+    StatusBar {
+        id: statusBar
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+        height: 26
+        currentBuffer: editorStack.currentBuffer
+        lspClient: editorStack.lspClient
+        projectName: projectManager.projectName
+        isGitRepo: projectManager.isGitRepo
+    }
+
+    // Toasts
+    ToastManager {
+        id: toasts
+        anchors.fill: parent
+    }
+
+    // LSP toast connections
+    Connections {
+        target: editorStack.lspClient
+        function onRunningChanged() {
+            if (editorStack.lspClient.running)
+                toasts.show("LSP connected: " + editorStack.lspClient.serverName, "success")
+            else
+                toasts.show("LSP disconnected", "warning")
+        }
+        function onDiagnosticsChanged() {
+            var diags = editorStack.lspClient.diagnostics
+            var errors = 0
+            for (var i = 0; i < diags.length; i++) {
+                if (diags[i].severity === 1) errors++
+            }
+            if (errors > 0)
+                toasts.show(errors + " error" + (errors > 1 ? "s" : "") + " found", "error")
+        }
+    }
+
+    // Command palette overlay
+    CommandPalette {
+        id: cmdPalette
+        visible: root.showCommandPalette
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: 80; width: 500
+
+        onCommandSelected: function(cmd) {
+            root.showCommandPalette = false
+            executeCommand(cmd)
+        }
+        onClosed: root.showCommandPalette = false
+    }
+
+    function executeCommand(cmd) {
+        switch(cmd) {
+            case "new_file":
+                editorStack.newFile(); root.showWelcome = false; root.showSettings = false; break
+            case "open_file": {
+                var p = dialogHelper.openFile()
+                if (p) { editorStack.openFile(p); root.showWelcome = false; root.showSettings = false }
+                break
+            }
+            case "open_folder": {
+                var d = dialogHelper.openFolder()
+                if (d) {
+                    projectManager.openDirectory(d)
+                    fileSystemModel.rootPath = projectManager.projectRoot || d
+                    root.showExplorer = true; root.showWelcome = false; root.showSettings = false
+                }
+                break
+            }
+            case "save":
+                if (editorStack.currentBuffer) editorStack.currentBuffer.saveFile(); break
+            case "save_as": {
+                if (editorStack.currentBuffer) {
+                    var s = dialogHelper.saveFile()
+                    if (s) editorStack.currentBuffer.saveFileAs(s)
+                }
+                break
+            }
+            case "close_tab": editorStack.closeCurrentTab(); break
+            case "toggle_explorer": root.showExplorer = !root.showExplorer; break
+            case "settings": root.showSettings = true; break
+            case "lsp_restart":
+                if (editorStack.lspClient.running) editorStack.lspClient.shutdown()
+                if (editorStack.currentBuffer) editorStack.restartLsp()
+                break
+            case "lsp_stop":
+                editorStack.lspClient.shutdown(); break
+            case "lsp_hover":
+                if (editorStack.currentBuffer && editorStack.lspClient.running) {
+                    editorStack.lspClient.requestHover(
+                        "file://" + editorStack.currentBuffer.filePath,
+                        editorStack.currentBuffer.cursorLine - 1,
+                        editorStack.currentBuffer.cursorColumn - 1)
+                }
+                break
+            case "lsp_definition":
+                if (editorStack.currentBuffer && editorStack.lspClient.running) {
+                    editorStack.lspClient.requestDefinition(
+                        "file://" + editorStack.currentBuffer.filePath,
+                        editorStack.currentBuffer.cursorLine - 1,
+                        editorStack.currentBuffer.cursorColumn - 1)
+                }
+                break
+            case "lsp_completion":
+                if (editorStack.currentBuffer && editorStack.lspClient.running) {
+                    editorStack.lspClient.requestCompletion(
+                        "file://" + editorStack.currentBuffer.filePath,
+                        editorStack.currentBuffer.cursorLine - 1,
+                        editorStack.currentBuffer.cursorColumn - 1)
+                }
+                break
+            case "reload_matugen":
+                theme.reloadMatugen()
+                toasts.show("Matugen colors reloaded", "info")
+                break
+        }
+    }
+
+    // Scanlines overlay
     Canvas {
         anchors.fill: parent
-        opacity: 0.025
+        opacity: 0.02
         onPaint: {
             var ctx = getContext("2d")
             for (var y = 0; y < height; y += 3) {

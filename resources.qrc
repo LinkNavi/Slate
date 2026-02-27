@@ -1,5 +1,12 @@
 <RCC>
     <qresource prefix="/slate">
         <file>qml/HomeScreen.qml</file>
+        <file>qml/WelcomeScreen.qml</file>
+        <file>qml/FileExplorer.qml</file>
+        <file>qml/EditorArea.qml</file>
+        <file>qml/StatusBar.qml</file>
+        <file>qml/CommandPalette.qml</file>
+        <file>qml/SettingsPanel.qml</file>
+        <file>qml/ToastManager.qml</file>
     </qresource>
 </RCC>
