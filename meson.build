@@ -23,15 +23,10 @@ moc_headers = qt6.compile_moc(
     'src/dialoghelper.h',
     'src/thememanager.h',
     'src/settingsmanager.h',
+    'src/syntaxhighlighter.h',
   ],
   dependencies: qt6_dep,
-)
-
-# SyntaxHighlighter needs special handling - moc the .cpp which includes the header
-moc_syntax = qt6.compile_moc(
-  sources: ['src/syntaxhighlighter.cpp'],
-  headers: ['src/syntaxhighlighter.h'],
-  dependencies: qt6_dep,
+  include_directories: include_directories('src'),
 )
 
 resources = qt6.compile_resources(
@@ -43,7 +38,6 @@ executable('slate',
   'src/main.cpp',
   'src/syntaxhighlighter.cpp',
   moc_headers,
-  moc_syntax,
   resources,
   dependencies: qt6_dep,
   install: true

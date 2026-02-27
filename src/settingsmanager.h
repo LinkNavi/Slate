@@ -125,6 +125,7 @@ private:
 
     int m_fontSize = 13;
     int m_tabWidth = 4;
+
     bool m_wordWrap = false;
     bool m_showLineNumbers = true;
     bool m_showMinimap = false;

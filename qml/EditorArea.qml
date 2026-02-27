@@ -11,38 +11,38 @@ Item {
     property var buffers: []
     property int currentIndex: -1
 
+    readonly property real gutterWidth: Math.max(48, editorArea.width * 0.05)
+    readonly property real tabBarHeight: editorArea.height * 0.045
+    readonly property real charWidth: fontMetrics.advanceWidth('m')
+
     signal fileOpened()
 
     LspClient { id: lsp }
 
-    // Timer for LSP change notifications (debounced)
     Timer {
         id: lspChangeTimer
         interval: 500; repeat: false
         onTriggered: {
             if (currentBuffer && lsp.running) {
                 lsp.didChange("file://" + currentBuffer.filePath, currentBuffer.content)
-                // Request semantic tokens after change
                 semanticTimer.restart()
+                completionTimer.restart()
             }
         }
     }
 
-    // Timer for semantic tokens (slightly longer debounce — heavier request)
     Timer {
         id: semanticTimer
         interval: 800; repeat: false
         onTriggered: {
-            if (currentBuffer && lsp.running && lsp.hasSemanticTokens()) {
+            if (currentBuffer && lsp.running && lsp.hasSemanticTokens())
                 lsp.requestSemanticTokens("file://" + currentBuffer.filePath)
-            }
         }
     }
 
-    // Timer for completion requests
     Timer {
         id: completionTimer
-        interval: 300; repeat: false
+        interval: 200; repeat: false
         onTriggered: {
             if (currentBuffer && lsp.running) {
                 lsp.requestCompletion(
@@ -55,7 +55,6 @@ Item {
     }
 
     function openFile(path) {
-        // Check if already open
         for (var i = 0; i < buffers.length; i++) {
             if (buffers[i].filePath === path) {
                 currentIndex = i
@@ -65,24 +64,16 @@ Item {
             }
         }
         var buf = bufComp.createObject(editorArea)
-        if (!buf.loadFile(path)) {
-            buf.destroy()
-            return
-        }
+        if (!buf.loadFile(path)) { buf.destroy(); return }
         buffers.push(buf)
         currentIndex = buffers.length - 1
         currentBuffer = buf
         textEdit.text = currentBuffer.content
-        tabRepeater.model = buffers.length // force refresh
+        tabRepeater.model = buffers.length
         fileOpened()
-
-        // Start LSP if available
         tryStartLsp(buf)
-
-        // Notify LSP
         if (lsp.running) {
             lsp.didOpen("file://" + buf.filePath, buf.languageId(), buf.content)
-            // Request semantic tokens after a short delay to let server index
             semanticTimer.restart()
         }
     }
@@ -99,16 +90,13 @@ Item {
 
     function closeCurrentTab() {
         if (currentIndex < 0 || buffers.length === 0) return
-        if (lsp.running && currentBuffer.filePath) {
+        if (lsp.running && currentBuffer.filePath)
             lsp.didClose("file://" + currentBuffer.filePath)
-        }
         var buf = buffers[currentIndex]
         buffers.splice(currentIndex, 1)
         buf.destroy()
         if (buffers.length === 0) {
-            currentIndex = -1
-            currentBuffer = null
-            textEdit.text = ""
+            currentIndex = -1; currentBuffer = null; textEdit.text = ""
         } else {
             currentIndex = Math.min(currentIndex, buffers.length - 1)
             currentBuffer = buffers[currentIndex]
@@ -142,8 +130,7 @@ Item {
         var cmd = settings.lspServerFor(langId)
         if (cmd && !lsp.running) {
             var root = projectManager.projectRoot || buf.filePath.substring(0, buf.filePath.lastIndexOf("/"))
-            var args = settings.lspArgsFor(langId)
-            lsp.startServer(cmd, args, root)
+            lsp.startServer(cmd, settings.lspArgsFor(langId), root)
         }
     }
 
@@ -152,7 +139,6 @@ Item {
         if (currentBuffer) tryStartLsp(currentBuffer)
     }
 
-    // When LSP connects, send didOpen for current file and request semantic tokens
     Connections {
         target: lsp
         function onRunningChanged() {
@@ -163,10 +149,7 @@ Item {
         }
     }
 
-    Component {
-        id: bufComp
-        EditorBuffer {}
-    }
+    Component { id: bufComp; EditorBuffer {} }
 
     ColumnLayout {
         anchors.fill: parent
@@ -174,47 +157,51 @@ Item {
 
         // Tab bar
         Rectangle {
-            Layout.fillWidth: true; height: buffers.length > 0 ? 34 : 0
-            color: theme.background; visible: height > 0
+            Layout.fillWidth: true
+            height: buffers.length > 0 ? tabBarHeight : 0
+            color: theme.background
+            visible: height > 0
             clip: true
 
             Row {
-                id: tabRow
                 anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
                 Repeater {
                     id: tabRepeater
                     model: buffers.length
                     delegate: Rectangle {
-                        width: tabLabel.implicitWidth + 52
-                        height: 34
+                        width: tabLabel.implicitWidth + editorArea.width * 0.04
+                        height: tabBarHeight
                         color: index === currentIndex ? theme.backgroundAlt : tabHover.containsMouse ? theme.surface : theme.background
                         border.color: index === currentIndex ? theme.border : "transparent"
                         border.width: 1
 
                         Rectangle {
-                            width: parent.width; height: 2
+                            width: parent.width; height: parent.height * 0.06
                             color: index === currentIndex ? theme.accent : "transparent"
                         }
 
                         RowLayout {
-                            anchors { fill: parent; leftMargin: 12; rightMargin: 8 }
-                            spacing: 6
+                            anchors { fill: parent; leftMargin: parent.width * 0.08; rightMargin: parent.width * 0.05 }
+                            spacing: editorArea.width * 0.004
                             Text {
                                 id: tabLabel
                                 text: {
                                     var b = buffers[index]
                                     return b ? ((b.modified ? "• " : "") + (b.fileName || "untitled")) : ""
                                 }
-                                font.family: settings.fontFamily; font.pixelSize: 11
+                                font.family: settings.fontFamily
+                                font.pixelSize: tabBarHeight * 0.32
                                 color: index === currentIndex ? theme.text : theme.textMuted
-                                elide: Text.ElideRight; Layout.fillWidth: true
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
                             }
                             Rectangle {
-                                width: 18; height: 18; radius: 3
+                                width: tabBarHeight * 0.52; height: tabBarHeight * 0.52; radius: 3
                                 color: closeHover.containsMouse ? theme.error + "33" : "transparent"
                                 Text {
                                     anchors.centerIn: parent; text: "×"
-                                    font.pixelSize: 14; color: closeHover.containsMouse ? theme.error : theme.textMuted
+                                    font.pixelSize: tabBarHeight * 0.4
+                                    color: closeHover.containsMouse ? theme.error : theme.textMuted
                                 }
                                 HoverHandler { id: closeHover }
                                 TapHandler {
@@ -238,56 +225,77 @@ Item {
 
         // Editor body
         Item {
-            Layout.fillWidth: true; Layout.fillHeight: true
+            id: editorBody
+            Layout.fillWidth: true
+            Layout.fillHeight: true
 
-            // Line numbers gutter
-            Flickable {
-                id: lineNumberFlick
+            // Gutter — strictly contained, never bleeds outside editorBody
+            Item {
+                id: gutterContainer
                 anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
-                width: 52
-                contentY: editorFlick.contentY
+                width: gutterWidth
                 clip: true
-                interactive: false
+                z: 0
 
-                Rectangle {
-                    width: 52; height: Math.max(lineNumCol.implicitHeight, editorFlick.height)
-                    color: theme.background
+                Rectangle { anchors.fill: parent; color: theme.background }
+
+                Flickable {
+                    id: lineNumberFlick
+                    anchors.fill: parent
+                    contentY: editorFlick.contentY
+                    interactive: false
+                    clip: true
 
                     Column {
-                        id: lineNumCol
-                        anchors { right: parent.right; rightMargin: 10; top: parent.top; topMargin: 8 }
+                        anchors {
+                            right: parent.right
+                            rightMargin: gutterWidth * 0.12
+                            top: parent.top
+                            topMargin: editorArea.height * 0.01
+                        }
+                        width: gutterWidth
+
                         Repeater {
                             model: currentBuffer ? currentBuffer.lineCount : 1
                             delegate: Text {
                                 text: (index + 1).toString()
-                                font.family: settings.fontFamily; font.pixelSize: settings.fontSize
-                                color: (index + 1) === (currentBuffer ? currentBuffer.cursorLine : 1) ? theme.accent : theme.textMuted
-                                height: 20
+                                font.family: settings.fontFamily
+                                font.pixelSize: settings.fontSize
+                                color: (index + 1) === (currentBuffer ? currentBuffer.cursorLine : 1)
+                                       ? theme.accent : theme.textMuted
+                                height: settings.fontSize * 1.54
                                 horizontalAlignment: Text.AlignRight
-                                width: 32
+                                width: gutterWidth * 0.85
                             }
                         }
                     }
                 }
             }
 
+            // Separator
             Rectangle {
-                x: 52
+                anchors { left: gutterContainer.right; top: parent.top; bottom: parent.bottom }
                 width: 1
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
                 color: theme.border
+                z: 0
             }
 
-            // Text area
+            // Text editor — anchored to right of gutter
             Flickable {
                 id: editorFlick
-                anchors { left: parent.left; leftMargin: 53; top: parent.top; right: parent.right; bottom: parent.bottom }
-                contentWidth: textEdit.paintedWidth + 24
-                contentHeight: textEdit.paintedHeight + 24
+                anchors {
+                    left: gutterContainer.right
+                    leftMargin: 1
+                    top: parent.top
+                    right: parent.right
+                    bottom: parent.bottom
+                }
+                contentWidth: textEdit.paintedWidth + editorArea.width * 0.02
+                contentHeight: textEdit.paintedHeight + editorArea.height * 0.03
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
                 flickableDirection: Flickable.AutoFlickIfNeeded
+                z: 0
 
                 ScrollBar.vertical: ScrollBar {
                     policy: ScrollBar.AsNeeded
@@ -302,9 +310,9 @@ Item {
 
                 TextEdit {
                     id: textEdit
-                    width: Math.max(editorFlick.width - 24, implicitWidth)
-                    padding: 8
-                    topPadding: 8
+                    width: Math.max(editorFlick.width - editorArea.width * 0.02, implicitWidth)
+                    padding: editorArea.width * 0.006
+                    topPadding: editorArea.height * 0.008
                     font.family: settings.fontFamily
                     font.pixelSize: settings.fontSize
                     color: theme.text
@@ -316,7 +324,6 @@ Item {
 
                     FontMetrics { id: fontMetrics; font: textEdit.font }
 
-                    // Syntax highlighter
                     SyntaxHighlighter {
                         id: highlighter
                         document: textEdit.textDocument
@@ -331,7 +338,6 @@ Item {
                         colorOperator: theme.accent
                     }
 
-                    // Update highlighter when buffer changes
                     Connections {
                         target: editorArea
                         function onCurrentBufferChanged() {
@@ -340,7 +346,6 @@ Item {
                         }
                     }
 
-                    // Update diagnostics in highlighter
                     Connections {
                         target: lsp
                         function onDiagnosticsChanged() {
@@ -363,48 +368,42 @@ Item {
 
                     onCursorPositionChanged: {
                         if (!currentBuffer) return
-                        // Calculate line and column from cursor position
                         var textBefore = text.substring(0, cursorPosition)
                         var lines = textBefore.split('\n')
                         currentBuffer.cursorLine = lines.length
                         currentBuffer.cursorColumn = lines[lines.length - 1].length + 1
+                        if (lsp.running) completionTimer.restart()
                     }
 
                     Keys.onPressed: function(event) {
-                        // Trigger completion on Ctrl+Space
-                        if (event.key === Qt.Key_Space && (event.modifiers & Qt.ControlModifier)) {
-                            completionTimer.restart()
-                            event.accepted = true
-                        }
-                        // Accept completion on Tab/Enter if popup visible
                         if (completionPopup.visible && (event.key === Qt.Key_Tab || event.key === Qt.Key_Return)) {
-                            var item = completionList.currentItem
-                            if (item) {
-                                // Insert completion text
-                                // Simple: just insert the label
+                            if (completionList.currentIndex >= 0 && completionList.currentIndex < lsp.completions.length) {
                                 var lbl = lsp.completions[completionList.currentIndex]["label"]
-                                if (lbl) {
-                                    textEdit.insert(textEdit.cursorPosition, lbl)
-                                }
+                                if (lbl) textEdit.insert(textEdit.cursorPosition, lbl)
                             }
-                            completionPopup.visible = false
+                            completionPopup.forceHide = true
                             event.accepted = true
+                            return
                         }
                         if (completionPopup.visible && event.key === Qt.Key_Escape) {
-                            completionPopup.visible = false
+                            completionPopup.forceHide = true
                             event.accepted = true
+                            return
                         }
                         if (completionPopup.visible && event.key === Qt.Key_Down) {
                             completionList.currentIndex = Math.min(completionList.currentIndex + 1, completionList.count - 1)
                             event.accepted = true
+                            return
                         }
                         if (completionPopup.visible && event.key === Qt.Key_Up) {
                             completionList.currentIndex = Math.max(completionList.currentIndex - 1, 0)
                             event.accepted = true
+                            return
                         }
+                        // Re-enable after typing next char
+                        if (completionPopup.forceHide) completionPopup.forceHide = false
                     }
 
-                    // Right-click context menu
                     TapHandler {
                         acceptedButtons: Qt.RightButton
                         onTapped: editorContextMenu.popup()
@@ -415,20 +414,32 @@ Item {
             // Completion popup
             Rectangle {
                 id: completionPopup
-                visible: lsp.completions.length > 0
+                property bool forceHide: false
+                visible: !forceHide && lsp.completions.length > 0 && textEdit.activeFocus
                 x: {
-                    if (!currentBuffer) return 53
+                    if (!currentBuffer) return gutterWidth + 1
                     var col = currentBuffer.cursorColumn - 1
-                    return 53 + 8 + col * fontMetrics.advanceWidth('m') - editorFlick.contentX
+                    var px = gutterWidth + 1 + (editorArea.width * 0.006) + col * charWidth - editorFlick.contentX
+                    return Math.min(Math.max(gutterWidth + 1, px), editorBody.width - width - 4)
                 }
                 y: {
                     if (!currentBuffer) return 0
                     var line = currentBuffer.cursorLine
-                    return 8 + line * fontMetrics.height - editorFlick.contentY
+                    var py = (editorArea.height * 0.008) + line * (settings.fontSize * 1.54) - editorFlick.contentY
+                    if (py + height > editorBody.height)
+                        py = py - height - settings.fontSize * 1.54
+                    return Math.max(0, Math.min(py, editorBody.height - height))
                 }
-                width: 320; height: Math.min(completionList.count * 26, 200)
-                color: theme.backgroundAlt; border.color: theme.borderFocus; border.width: 1; radius: 4
+                width: editorArea.width * 0.22
+                height: Math.min(completionList.count * (editorArea.height * 0.033), editorArea.height * 0.25)
+                color: theme.backgroundAlt
+                border.color: theme.borderFocus
+                border.width: 1
+                radius: 4
                 z: 100
+
+                // Reset index when completions update
+                onVisibleChanged: if (visible) completionList.currentIndex = 0
 
                 ListView {
                     id: completionList
@@ -437,28 +448,50 @@ Item {
                     clip: true
                     currentIndex: 0
                     delegate: Rectangle {
-                        width: completionList.width; height: 26
+                        width: completionList.width
+                        height: editorArea.height * 0.033
                         color: index === completionList.currentIndex ? theme.hover : "transparent"
                         RowLayout {
-                            anchors { fill: parent; leftMargin: 8; rightMargin: 8 }
-                            spacing: 6
+                            anchors { fill: parent; leftMargin: editorArea.width * 0.005; rightMargin: editorArea.width * 0.005 }
+                            spacing: editorArea.width * 0.003
                             Text {
                                 text: {
                                     var kind = modelData.kind || 0
-                                    var kinds = {1:"txt",2:"fn",3:"fn",4:"",5:"field",6:"var",
-                                                 7:"class",8:"iface",9:"mod",10:"prop",
-                                                 13:"enum",14:"kw",15:"snip",21:"const",22:"struct"}
+                                    var kinds = {1:"txt",2:"fn",3:"fn",4:"ctr",5:"fld",6:"var",
+                                                 7:"cls",8:"ifc",9:"mod",10:"prp",13:"enm",
+                                                 14:"kw",15:"snp",21:"cst",22:"str"}
                                     return kinds[kind] || "·"
                                 }
-                                font.family: settings.fontFamily; font.pixelSize: 9
-                                color: theme.accent; Layout.preferredWidth: 36
+                                font.family: settings.fontFamily
+                                font.pixelSize: editorArea.height * 0.012
+                                color: theme.accent
+                                Layout.preferredWidth: editorArea.width * 0.025
                             }
                             Text {
                                 text: modelData.label || ""
-                                font.family: settings.fontFamily; font.pixelSize: 12
-                                color: theme.text; elide: Text.ElideRight; Layout.fillWidth: true
+                                font.family: settings.fontFamily
+                                font.pixelSize: editorArea.height * 0.015
+                                color: theme.text
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                            Text {
+                                text: modelData.detail || ""
+                                font.family: settings.fontFamily
+                                font.pixelSize: editorArea.height * 0.011
+                                color: theme.textMuted
+                                elide: Text.ElideRight
+                                Layout.preferredWidth: editorArea.width * 0.055
                             }
                         }
+                        TapHandler {
+                            onTapped: {
+                                var lbl = lsp.completions[index]["label"]
+                                if (lbl) textEdit.insert(textEdit.cursorPosition, lbl)
+                                completionPopup.forceHide = true
+                            }
+                        }
+                        HoverHandler { onHoveredChanged: if (hovered) completionList.currentIndex = index }
                     }
                 }
             }
@@ -467,86 +500,77 @@ Item {
             Rectangle {
                 id: hoverTooltip
                 visible: false
-                x: 200; y: 100
-                width: hoverText.implicitWidth + 20
-                height: hoverText.implicitHeight + 16
-                color: theme.backgroundAlt; border.color: theme.borderFocus; border.width: 1; radius: 4
+                x: editorArea.width * 0.1; y: editorArea.height * 0.1
+                width: Math.min(hoverText.implicitWidth + editorArea.width * 0.015, editorArea.width * 0.5)
+                height: hoverText.implicitHeight + editorArea.height * 0.02
+                color: theme.backgroundAlt
+                border.color: theme.borderFocus; border.width: 1; radius: 4
                 z: 100
 
                 Text {
                     id: hoverText
-                    anchors { fill: parent; margins: 8 }
-                    font.family: settings.fontFamily; font.pixelSize: 11
+                    anchors { fill: parent; margins: editorArea.width * 0.007 }
+                    font.family: settings.fontFamily
+                    font.pixelSize: editorArea.height * 0.014
                     color: theme.text; wrapMode: Text.Wrap
                 }
 
-                Timer {
-                    id: hoverHideTimer
-                    interval: 5000; onTriggered: hoverTooltip.visible = false
-                }
+                Timer { id: hoverHideTimer; interval: 5000; onTriggered: hoverTooltip.visible = false }
             }
 
             Connections {
                 target: lsp
                 function onHoverResult(text) {
-                    if (text) {
-                        hoverText.text = text
-                        hoverTooltip.visible = true
-                        hoverHideTimer.restart()
-                    }
+                    if (text) { hoverText.text = text; hoverTooltip.visible = true; hoverHideTimer.restart() }
                 }
                 function onDefinitionResult(uri, line, character) {
-                    if (uri) {
-                        var path = uri.replace("file://", "")
-                        openFile(path)
-                        // TODO: scroll to line
-                    }
+                    if (uri) openFile(uri.replace("file://", ""))
                 }
             }
 
-            // Empty state
             Item {
                 anchors.fill: parent
                 visible: !currentBuffer
                 Text {
                     anchors.centerIn: parent
                     text: "Ctrl+N new file · Ctrl+O open file"
-                    font.family: settings.fontFamily; font.pixelSize: 13; color: theme.textMuted
+                    font.family: settings.fontFamily
+                    font.pixelSize: editorArea.height * 0.016
+                    color: theme.textMuted
                 }
             }
         }
     }
 
-    // Editor context menu
     Menu {
         id: editorContextMenu
         background: Rectangle {
-            implicitWidth: 220; color: theme.backgroundAlt
+            implicitWidth: editorArea.width * 0.16
+            color: theme.backgroundAlt
             border.color: theme.borderFocus; border.width: 1; radius: 6
         }
-
         MenuItem {
             text: "Cut                  Ctrl+X"
-            contentItem: Text { text: parent.text; font.family: settings.fontFamily; font.pixelSize: 12; color: theme.text }
+            contentItem: Text { text: parent.text; font.family: settings.fontFamily; font.pixelSize: editorArea.height * 0.015; color: theme.text }
             background: Rectangle { color: parent.highlighted ? theme.hover : "transparent"; radius: 4 }
             onTriggered: textEdit.cut()
         }
         MenuItem {
             text: "Copy                 Ctrl+C"
-            contentItem: Text { text: parent.text; font.family: settings.fontFamily; font.pixelSize: 12; color: theme.text }
+            contentItem: Text { text: parent.text; font.family: settings.fontFamily; font.pixelSize: editorArea.height * 0.015; color: theme.text }
             background: Rectangle { color: parent.highlighted ? theme.hover : "transparent"; radius: 4 }
             onTriggered: textEdit.copy()
         }
         MenuItem {
             text: "Paste                Ctrl+V"
-            contentItem: Text { text: parent.text; font.family: settings.fontFamily; font.pixelSize: 12; color: theme.text }
+            contentItem: Text { text: parent.text; font.family: settings.fontFamily; font.pixelSize: editorArea.height * 0.015; color: theme.text }
             background: Rectangle { color: parent.highlighted ? theme.hover : "transparent"; radius: 4 }
             onTriggered: textEdit.paste()
         }
         MenuSeparator { contentItem: Rectangle { implicitHeight: 1; color: theme.border } }
         MenuItem {
             text: "Select All           Ctrl+A"
-            contentItem: Text { text: parent.text; font.family: settings.fontFamily; font.pixelSize: 12; color: theme.text }
+            contentItem: Text { text: parent.text; font.family: settings.fontFamily; font.pixelSize: editorArea.height * 0.015; color: theme.text }
             background: Rectangle { color: parent.highlighted ? theme.hover : "transparent"; radius: 4 }
             onTriggered: textEdit.selectAll()
         }
@@ -554,59 +578,27 @@ Item {
         MenuItem {
             text: "Go to Definition     F12"
             enabled: lsp.running
-            contentItem: Text {
-                text: parent.text; font.family: "Courier New"; font.pixelSize: 12
-                color: parent.enabled ? theme.text : theme.textMuted
-            }
+            contentItem: Text { text: parent.text; font.family: settings.fontFamily; font.pixelSize: editorArea.height * 0.015; color: parent.enabled ? theme.text : theme.textMuted }
             background: Rectangle { color: parent.highlighted ? theme.hover : "transparent"; radius: 4 }
-            onTriggered: {
-                if (currentBuffer && lsp.running) {
-                    lsp.requestDefinition(
-                        "file://" + currentBuffer.filePath,
-                        currentBuffer.cursorLine - 1,
-                        currentBuffer.cursorColumn - 1
-                    )
-                }
-            }
+            onTriggered: { if (currentBuffer && lsp.running) lsp.requestDefinition("file://" + currentBuffer.filePath, currentBuffer.cursorLine - 1, currentBuffer.cursorColumn - 1) }
         }
         MenuItem {
             text: "Show Hover           Ctrl+H"
             enabled: lsp.running
-            contentItem: Text {
-                text: parent.text; font.family: "Courier New"; font.pixelSize: 12
-                color: parent.enabled ? theme.text : theme.textMuted
-            }
+            contentItem: Text { text: parent.text; font.family: settings.fontFamily; font.pixelSize: editorArea.height * 0.015; color: parent.enabled ? theme.text : theme.textMuted }
             background: Rectangle { color: parent.highlighted ? theme.hover : "transparent"; radius: 4 }
-            onTriggered: {
-                if (currentBuffer && lsp.running) {
-                    lsp.requestHover(
-                        "file://" + currentBuffer.filePath,
-                        currentBuffer.cursorLine - 1,
-                        currentBuffer.cursorColumn - 1
-                    )
-                }
-            }
-        }
-        MenuItem {
-            text: "Trigger Completion   Ctrl+Space"
-            enabled: lsp.running
-            contentItem: Text {
-                text: parent.text; font.family: "Courier New"; font.pixelSize: 12
-                color: parent.enabled ? theme.text : theme.textMuted
-            }
-            background: Rectangle { color: parent.highlighted ? theme.hover : "transparent"; radius: 4 }
-            onTriggered: completionTimer.restart()
+            onTriggered: { if (currentBuffer && lsp.running) lsp.requestHover("file://" + currentBuffer.filePath, currentBuffer.cursorLine - 1, currentBuffer.cursorColumn - 1) }
         }
         MenuSeparator { contentItem: Rectangle { implicitHeight: 1; color: theme.border } }
         MenuItem {
             text: "Save                 Ctrl+S"
-            contentItem: Text { text: parent.text; font.family: settings.fontFamily; font.pixelSize: 12; color: theme.text }
+            contentItem: Text { text: parent.text; font.family: settings.fontFamily; font.pixelSize: editorArea.height * 0.015; color: theme.text }
             background: Rectangle { color: parent.highlighted ? theme.hover : "transparent"; radius: 4 }
             onTriggered: { if (currentBuffer) currentBuffer.saveFile() }
         }
         MenuItem {
             text: "Close Tab            Ctrl+W"
-            contentItem: Text { text: parent.text; font.family: settings.fontFamily; font.pixelSize: 12; color: theme.text }
+            contentItem: Text { text: parent.text; font.family: settings.fontFamily; font.pixelSize: editorArea.height * 0.015; color: theme.text }
             background: Rectangle { color: parent.highlighted ? theme.hover : "transparent"; radius: 4 }
             onTriggered: closeCurrentTab()
         }
