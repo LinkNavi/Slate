@@ -1,0 +1,12 @@
+// Place the following sokol headers here (download from https://github.com/floooh/sokol):
+//   sokol_app.h
+//   sokol_gfx.h
+//   sokol_glue.h
+//   sokol_time.h
+//   sokol_fetch.h
+//
+// And these from https://github.com/floooh/sokol/tree/master/util:
+//   sokol_fontstash.h
+//   sokol_imgui.h  (if you want ImGui for debug panels)
+//
+// All are single-header, just drop them in this directory.

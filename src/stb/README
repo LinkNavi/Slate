@@ -1,0 +1,4 @@
+// Download these from https://github.com/nothings/stb :
+//   stb_image.h
+//   stb_image_resize.h
+// Drop them in this directory.
