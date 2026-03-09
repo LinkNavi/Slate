@@ -7,11 +7,12 @@ void Buffer::load(const std::string& path) {
     name = path.substr(path.find_last_of("/\\") + 1);
     lines.clear();
     std::ifstream f(path);
-    if (!f.is_open()) { lines.push_back(""); return; }
+    if (!f.is_open()) { lines.push_back(""); fire_open(); return; }
     std::string line;
     while (std::getline(f, line)) lines.push_back(line);
     if (lines.empty()) lines.push_back("");
     modified = false;
+    fire_open();
 }
 
 void Buffer::save() {
@@ -22,4 +23,5 @@ void Buffer::save() {
         if (i + 1 < lines.size()) f << '\n';
     }
     modified = false;
+    fire_save();
 }

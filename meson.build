@@ -14,19 +14,23 @@ ftxui_opts.add_cmake_defines({
 
 ftxui_proj = cmake.subproject('ftxui', options: ftxui_opts)
 
-ftxui_screen   = ftxui_proj.dependency('screen')
-ftxui_dom      = ftxui_proj.dependency('dom')
+ftxui_screen    = ftxui_proj.dependency('screen')
+ftxui_dom       = ftxui_proj.dependency('dom')
 ftxui_component = ftxui_proj.dependency('component')
+
+wren_proj = subproject('wren')
+wren_dep  = wren_proj.get_variable('wren_dep')
 
 sources = files(
   'src/main.cpp',
   'src/app.cpp',
   'src/buffer.cpp',
   'src/screen_manager.cpp',
+  'src/scripting.cpp',
 )
 
 executable('slate',
   sources,
   include_directories: include_directories('include'),
-  dependencies: [ftxui_screen, ftxui_dom, ftxui_component],
+  dependencies: [ftxui_screen, ftxui_dom, ftxui_component, wren_dep],
 )

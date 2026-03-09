@@ -5,16 +5,17 @@
 #include <functional>
 
 enum class ScreenType {
-    Home,
     Editor,
     BufferList,
 };
 
 struct Screen {
     ScreenType type;
-    std::shared_ptr<Buffer> buffer; // null for non-editor screens
+    std::shared_ptr<Buffer> buffer;
     std::string title;
 };
+
+using NewBufferEvent = std::function<void(Buffer&)>;
 
 class ScreenManager {
 public:
@@ -25,12 +26,13 @@ public:
     Screen& current();
     bool has_screens() const { return !stack_.empty(); }
 
-    // Buffer pool shared across all editor screens
     std::vector<std::shared_ptr<Buffer>>& buffers() { return buffers_; }
     std::shared_ptr<Buffer> new_buffer(const std::string& name = "untitled");
     std::shared_ptr<Buffer> get_buffer(size_t idx);
     size_t active_buffer_idx() const { return active_buf_; }
     void set_active_buffer(size_t idx);
+
+    std::vector<NewBufferEvent> on_new_buffer;
 
 private:
     std::vector<Screen> stack_;
